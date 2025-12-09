@@ -1,0 +1,58 @@
+{
+    "aliases": {
+        "play": [
+            "p",
+            "reproducir"
+        ],
+        "pause": [
+            "ps",
+            "pausa"
+        ],
+        "resume": [
+            "r",
+            "continuar",
+            "reanudar",
+            "unpause"
+        ],
+        "stopit": [
+            "stp",
+            "parar",
+            "terminar",
+            "stop"
+        ],
+        "disconnect": [
+            "dc",
+            "desconectar",
+            "leave",
+            "salir"
+        ],
+        "nowplaying": [
+            "np",
+            "current",
+            "actual"
+        ],
+        "queue": [
+            "q",
+            "lista",
+            "colas"
+        ],
+        "shuffle": [
+            "rnd",
+            "random",
+            "mezclar"
+        ],
+        "remove": [
+            "rm",
+            "eliminar",
+            "delete",
+            "quitar"
+        ],
+        "helpme": [
+            "hm",
+            "ayuda",
+            "comandos"
+        ]
+    },
+    "join_sound": "sounds/join.mp3",
+    "leave_sound": "sounds/leave.mp3"
+}
