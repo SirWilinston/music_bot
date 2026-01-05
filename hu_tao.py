@@ -643,7 +643,7 @@ async def before_update_check():
 # --- FIN DE NUEVA FUNCIONALIDAD ---
 
 # --- CONFIGURACIÓN DE MONITOR DE ESTADO (UPTIME KUMA) ---
-UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/qhw3AizZxd36RQCAJlxRDxR9ZXayudJM?status=up&msg=OK&ping="  # Ejemplo: https://kuma.midominio.com/api/push/xxxxx...
+UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/vKnIkrymMwYfY8W1Gkl5ZoveUKyVFaVW?status=up&msg=OK&ping="  # Ejemplo: https://kuma.midominio.com/api/push/xxxxx...
 
 @tasks.loop(seconds=20)
 async def uptime_heartbeat():
