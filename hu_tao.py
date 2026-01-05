@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import discord
+import aiohttp
 from discord.ext import commands
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
@@ -641,6 +642,32 @@ async def before_update_check():
     await bot.wait_until_ready() # Esperar a que el bot esté listo
 # --- FIN DE NUEVA FUNCIONALIDAD ---
 
+# --- CONFIGURACIÓN DE MONITOR DE ESTADO (UPTIME KUMA) ---
+UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/qhw3AizZxd36RQCAJlxRDxR9ZXayudJM?status=up&msg=OK&ping="  # Ejemplo: https://kuma.midominio.com/api/push/xxxxx...
+
+@tasks.loop(seconds=20)
+async def uptime_heartbeat():
+    """Envía una señal a Uptime Kuma cada 60 segundos para indicar que el bot está vivo."""
+    if not UPTIME_KUMA_URL or "PEGA_AQUI" in UPTIME_KUMA_URL:
+        print("[Monitor] URL de Uptime Kuma no configurada.")
+        return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(UPTIME_KUMA_URL) as response:
+                if response.status == 200:
+                    # Si quieres menos spam en la consola, comenta la siguiente línea
+                    # print(f"[Monitor] Latido enviado correctamente (Status: {response.status})")
+                    pass
+                else:
+                    print(f"[Monitor] Error al enviar latido: Status {response.status}")
+    except Exception as e:
+        print(f"[Monitor] Fallo de conexión con Uptime Kuma: {e}")
+
+@uptime_heartbeat.before_loop
+async def before_heartbeat():
+    await bot.wait_until_ready()
+# --------------------------------------------------------
 
 # Evento cuando el bot está listo
 @bot.event
@@ -649,6 +676,7 @@ async def on_ready():
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="-helpme"))
     voice_check_task.start()
     update_check_task.start() # <-- Iniciar la nueva tarea
+    uptime_heartbeat.start()
 
 # Manejo de errores
 @bot.event
