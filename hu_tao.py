@@ -10,10 +10,9 @@ import json
 from discord.utils import get
 import asyncio
 from discord.ext import tasks
-import sys         # <-- Añadido para el reinicio
-import subprocess  # <-- Añadido para ejecutar pip
+import sys
+import subprocess
 
-# Cargar variables de entorno
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
@@ -57,8 +56,8 @@ ydl_opts = {
 
 # Opciones de FFmpeg (Sin cambios)
 ffmpeg_options = {
-    'options': '-vn -filter:a "volume=0.1" -b:a 128k -threads 4 -loglevel error',
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -analyzeduration 0 -probesize 32k -fflags +nobuffer+fastseek+discardcorrupt'
+    'options': '-vn -b:a 128k -threads 4 -loglevel error',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -analyzeduration 0 -probesize 32k -fflags +fastseek+discardcorrupt'
 }
 
 # Cargar o crear archivo de configuración
@@ -146,10 +145,12 @@ async def play_next(ctx):
             )
             stream_url = info['url'] 
 
-            source = discord.FFmpegPCMAudio(
+            base_source = discord.FFmpegPCMAudio(
                 stream_url,
                 **ffmpeg_options
             )
+
+            source = discord.PCMVolumeTransformer(base_source, volume=0.1)
 
             # --- INICIO DE LA SECCIÓN MODIFICADA ---
             embed = discord.Embed(
@@ -643,7 +644,7 @@ async def before_update_check():
 # --- FIN DE NUEVA FUNCIONALIDAD ---
 
 # --- CONFIGURACIÓN DE MONITOR DE ESTADO (UPTIME KUMA) ---
-UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/vKnIkrymMwYfY8W1Gkl5ZoveUKyVFaVW?status=up&msg=OK&ping="  # Ejemplo: https://kuma.midominio.com/api/push/xxxxx...
+UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/vKnIkrymMwYfY8W1Gkl5ZoveUKyVFaVW?status=up&msg=OK&ping="
 
 @tasks.loop(seconds=20)
 async def uptime_heartbeat():
