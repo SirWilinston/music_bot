@@ -27,7 +27,7 @@ current_songs = {}  # Almacena la canción actual por servidor
 voice_timeout = {}  # Diccionario para controlar timeouts por servidor
 
 # Bibliotecas a monitorear para actualizaciones
-LIBS_TO_UPDATE = ['yt-dlp', 'discord.py', 'PyNaCl']
+LIBS_TO_UPDATE = ['yt-dlp', 'discord.py', 'PyNaCl', 'davey']
 
 # Diccionario para alias de comandos
 command_aliases = {
