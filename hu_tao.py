@@ -165,7 +165,7 @@ async def play_next(ctx):
                 embed.set_thumbnail(url=song['thumbnail'])
             
             # Añadir la duración
-            duration_str = song.get('duration', 'Desconocida')
+            duration_str = song.get('duration') or 'Desconocida'
             embed.add_field(name="Duración", value=duration_str, inline=True)
             
             # Añadir quién la solicitó
@@ -302,7 +302,7 @@ async def play(ctx, *, query):
                 continue
 
             webpage_url = song_info.get('webpage_url', song_info.get('url'))
-            duration_sec = song_info.get('duration', 0)
+            duration_sec = song_info.get('duration') or 0
             
             song_data = {
                 'title': song_info.get('title', 'Título desconocido'),
