@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import discord
+import aiohttp
 from discord.ext import commands
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
@@ -9,10 +10,9 @@ import json
 from discord.utils import get
 import asyncio
 from discord.ext import tasks
-import sys         # <-- Añadido para el reinicio
-import subprocess  # <-- Añadido para ejecutar pip
+import sys
+import subprocess
 
-# Cargar variables de entorno
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
@@ -27,7 +27,7 @@ current_songs = {}  # Almacena la canción actual por servidor
 voice_timeout = {}  # Diccionario para controlar timeouts por servidor
 
 # Bibliotecas a monitorear para actualizaciones
-LIBS_TO_UPDATE = ['yt-dlp', 'discord.py', 'PyNaCl']
+LIBS_TO_UPDATE = ['yt-dlp', 'discord.py', 'PyNaCl', 'davey']
 
 # Diccionario para alias de comandos
 command_aliases = {
@@ -59,8 +59,8 @@ ydl_opts = {
 
 # Opciones de FFmpeg (Sin cambios)
 ffmpeg_options = {
-    'options': '-vn -filter:a "volume=0.1" -b:a 128k -threads 4 -loglevel error',
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -analyzeduration 0 -probesize 32k -fflags +nobuffer+fastseek+discardcorrupt'
+    'options': '-vn -b:a 128k -threads 4 -loglevel error',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -analyzeduration 0 -probesize 32k -fflags +fastseek+discardcorrupt'
 }
 
 # Cargar o crear archivo de configuración
@@ -148,10 +148,12 @@ async def play_next(ctx):
             )
             stream_url = info['url'] 
 
-            source = discord.FFmpegPCMAudio(
+            base_source = discord.FFmpegPCMAudio(
                 stream_url,
                 **ffmpeg_options
             )
+
+            source = discord.PCMVolumeTransformer(base_source, volume=0.1)
 
             # --- INICIO DE LA SECCIÓN MODIFICADA ---
             embed = discord.Embed(
@@ -166,7 +168,7 @@ async def play_next(ctx):
                 embed.set_thumbnail(url=song['thumbnail'])
             
             # Añadir la duración
-            duration_str = song.get('duration', 'Desconocida')
+            duration_str = song.get('duration') or 'Desconocida'
             embed.add_field(name="Duración", value=duration_str, inline=True)
             
             # Añadir quién la solicitó
@@ -303,7 +305,7 @@ async def play(ctx, *, query):
                 continue
 
             webpage_url = song_info.get('webpage_url', song_info.get('url'))
-            duration_sec = song_info.get('duration', 0)
+            duration_sec = song_info.get('duration') or 0
             
             song_data = {
                 'title': song_info.get('title', 'Título desconocido'),
@@ -644,6 +646,32 @@ async def before_update_check():
     await bot.wait_until_ready() # Esperar a que el bot esté listo
 # --- FIN DE NUEVA FUNCIONALIDAD ---
 
+# --- CONFIGURACIÓN DE MONITOR DE ESTADO (UPTIME KUMA) ---
+UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/vKnIkrymMwYfY8W1Gkl5ZoveUKyVFaVW?status=up&msg=OK&ping="
+
+@tasks.loop(seconds=20)
+async def uptime_heartbeat():
+    """Envía una señal a Uptime Kuma cada 60 segundos para indicar que el bot está vivo."""
+    if not UPTIME_KUMA_URL or "PEGA_AQUI" in UPTIME_KUMA_URL:
+        print("[Monitor] URL de Uptime Kuma no configurada.")
+        return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(UPTIME_KUMA_URL) as response:
+                if response.status == 200:
+                    # Si quieres menos spam en la consola, comenta la siguiente línea
+                    # print(f"[Monitor] Latido enviado correctamente (Status: {response.status})")
+                    pass
+                else:
+                    print(f"[Monitor] Error al enviar latido: Status {response.status}")
+    except Exception as e:
+        print(f"[Monitor] Fallo de conexión con Uptime Kuma: {e}")
+
+@uptime_heartbeat.before_loop
+async def before_heartbeat():
+    await bot.wait_until_ready()
+# --------------------------------------------------------
 
 # Evento cuando el bot está listo
 @bot.event
@@ -652,6 +680,7 @@ async def on_ready():
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="-helpme"))
     voice_check_task.start()
     update_check_task.start() # <-- Iniciar la nueva tarea
+    uptime_heartbeat.start()
 
 # Manejo de errores
 @bot.event
