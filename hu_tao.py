@@ -2,15 +2,15 @@ import os
 import random
 import asyncio
 import discord
+import aiohttp
 from discord.ext import commands
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
 import json
 from discord.utils import get
-import asyncio
 from discord.ext import tasks
-import sys         # <-- Añadido para el reinicio
-import subprocess  # <-- Añadido para ejecutar pip
+import sys
+import subprocess
 
 # Cargar variables de entorno
 load_dotenv()
@@ -639,8 +639,24 @@ async def update_check_task():
 @update_check_task.before_loop
 async def before_update_check():
     await bot.wait_until_ready() # Esperar a que el bot esté listo
-# --- FIN DE NUEVA FUNCIONALIDAD ---
 
+# --- ALERTA DE ESTADO (UPTIME KUMA) ---
+UPTIME_KUMA_URL = os.getenv("UPTIME_KUMA", "")
+
+@tasks.loop(seconds=20)
+async def uptime_heartbeat():
+    try:
+        # Usamos aiohttp para hacer la petición sin bloquear el bot
+        async with aiohttp.ClientSession() as session:
+            async with session.get(UPTIME_KUMA_URL) as response:
+                if response.status == 200:
+                    print("Pushed Uptime Kuma!\n")
+    except Exception as e:
+        print(f"[Monitor] Fallo al avisar a Uptime Kuma: {e}")
+
+@uptime_heartbeat.before_loop
+async def before_heartbeat():
+    await bot.wait_until_ready() # Espera a que el bot cargue antes de empezar a hacer ping
 
 # Evento cuando el bot está listo
 @bot.event
