@@ -664,7 +664,8 @@ async def on_ready():
     print(f'Bot conectado como {bot.user.name}')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="-helpme"))
     voice_check_task.start()
-    update_check_task.start() # <-- Iniciar la nueva tarea
+    update_check_task.start()
+    uptime_heartbeat.start()
 
 # Manejo de errores
 @bot.event
