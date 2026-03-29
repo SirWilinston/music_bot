@@ -51,7 +51,10 @@ ydl_opts = {
     'default_search': 'ytsearch',
     'noplaylist': False,
     'extract_flat': 'in_playlist',
-    'source_address': '0.0.0.0'
+    'source_address': '0.0.0.0',
+    'extractor_args': {
+        'youtube': ['player_client=android'] # <-- EL PARCHE ANTI-BLOQUEOS
+    }
 }
 
 # Opciones de FFmpeg (Sin cambios)
