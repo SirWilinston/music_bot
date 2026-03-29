@@ -574,7 +574,7 @@ async def update_check_task():
         await asyncio.to_thread(subprocess.run, install_cmd, capture_output=True, text=True, check=True)
         
         await bot.close()
-        bot.run(TOKEN)
+        os._exit(0)
         
     except Exception as e:
         print(f"[Auto-Update] Error: {e}")
