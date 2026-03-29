@@ -628,7 +628,7 @@ async def update_check_task():
 
         # 4. Reiniciar el bot
         await bot.close()  # Cerrar la conexión de Discord limpiamente
-        bot.run(TOKEN)
+        os._exit(0)
         
 
     except subprocess.CalledProcessError as e:
