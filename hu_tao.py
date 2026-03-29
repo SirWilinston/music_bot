@@ -7,29 +7,25 @@ from discord.ext import commands
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
 import json
-from discord.utils import get
-import asyncio
 from discord.ext import tasks
 import sys
 import subprocess
+from playwright.async_api import async_playwright
 
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv('DISCORD_TOKEN', "")
 
-# Configuración inicial
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix='-', intents=intents)
 
-queues = {}         # Diccionario para almacenar las colas de reproducción por servidor
-current_songs = {}  # Almacena la canción actual por servidor
-voice_timeout = {}  # Diccionario para controlar timeouts por servidor
+queues = {}
+current_songs = {}
+voice_timeout = {}
 
-# Bibliotecas a monitorear para actualizaciones
 LIBS_TO_UPDATE = ['yt-dlp', 'discord.py', 'PyNaCl', 'davey']
 
-# Diccionario para alias de comandos
 command_aliases = {
     'play': ['p', 'reproducir'],
     'pause': ['pausa', 'stop'],
@@ -43,27 +39,25 @@ command_aliases = {
     'helpme': ['ayuda', 'comandos']
 }
 
-# Configuración de yt-dlp (Optimizada para playlists)
 ydl_opts = {
-    'format': 'bestaudio[ext=opus]/bestaudio/best',
+    'format': 'bestaudio/best',
     'quiet': True,
     'no_warnings': True,
     'default_search': 'ytsearch',
     'noplaylist': False,
     'extract_flat': 'in_playlist',
     'source_address': '0.0.0.0',
+    'cookiefile': 'cookies.txt',
     'extractor_args': {
-        'youtube': ['player_client=android'] # <-- EL PARCHE ANTI-BLOQUEOS
+        'youtube': ['player_client=android']
     }
 }
 
-# Opciones de FFmpeg (Sin cambios)
 ffmpeg_options = {
-    'options': '-vn -b:a 128k -threads 4 -loglevel error',
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -analyzeduration 0 -probesize 32k -fflags +fastseek+discardcorrupt'
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn -b:a 128k -threads 4'
 }
 
-# Cargar o crear archivo de configuración
 def load_config():
     try:
         with open('config.json', 'r') as f:
@@ -84,11 +78,54 @@ def save_config(config):
 config = load_config()
 command_aliases = config.get('aliases', command_aliases)
 
-# Verificar y crear carpetas necesarias
 if not os.path.exists('sounds'):
     os.makedirs('sounds')
 
-# Función para buscar y descargar música (maneja playlists)
+async def update_youtube_cookies():
+    print("[Cookies] Obteniendo nuevas cookies de YouTube mediante Playwright...")
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+            
+            await page.goto("https://www.youtube.com", wait_until="networkidle")
+            await asyncio.sleep(5)
+            
+            cookies = await context.cookies()
+            
+            with open("cookies.txt", "w") as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                for c in cookies:
+                    domain = c.get('domain', '')
+                    if not domain.startswith('.'):
+                        domain = '.' + domain
+                        
+                    flag = "TRUE" if domain.startswith('.') else "FALSE"
+                    path = c.get('path', '/')
+                    secure = "TRUE" if c.get('secure', False) else "FALSE"
+                    
+                    expires = c.get('expires', 0)
+                    expires_str = str(int(expires)) if expires > 0 else "0"
+                    
+                    name = c.get('name', '')
+                    value = c.get('value', '')
+                    
+                    f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expires_str}\t{name}\t{value}\n")
+                    
+            print("[Cookies] Archivo cookies.txt generado exitosamente.")
+            await browser.close()
+    except Exception as e:
+        print(f"[Cookies] Error extrayendo cookies: {e}")
+
+@tasks.loop(hours=24)
+async def cookie_refresh_task():
+    await update_youtube_cookies()
+
+@cookie_refresh_task.before_loop
+async def before_cookie_refresh():
+    await bot.wait_until_ready()
+
 async def search_and_download(query):
     loop = bot.loop
     
@@ -96,14 +133,14 @@ async def search_and_download(query):
     ydl_search_opts['noplaylist'] = True
     ydl_url_opts = ydl_opts.copy()
 
-    with YoutubeDL(ydl_url_opts) as ydl:
+    with YoutubeDL(ydl_url_opts) as ydl: # type: ignore
         try:
             info = await loop.run_in_executor(
                 None, lambda: ydl.extract_info(query, download=False)
             )
         except Exception:
             try:
-                with YoutubeDL(ydl_search_opts) as ydl_search:
+                with YoutubeDL(ydl_search_opts) as ydl_search: # type: ignore
                     info_search = await loop.run_in_executor(
                         None, lambda: ydl_search.extract_info(f"ytsearch:{query}", download=False)
                     )
@@ -120,8 +157,6 @@ async def search_and_download(query):
     else:
         return [info]
 
-# Función para reproducir la siguiente canción en la cola
-# Función para reproducir la siguiente canción en la cola (Embed MEJORADO)
 async def play_next(ctx):
     if ctx.guild.id in voice_timeout:
         del voice_timeout[ctx.guild.id]
@@ -142,20 +177,15 @@ async def play_next(ctx):
         song = queues[ctx.guild.id].pop(0)
         current_songs[ctx.guild.id] = song
         
-        with YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl: # type: ignore
             info = await bot.loop.run_in_executor(
                 None, lambda: ydl.extract_info(song['url'], download=False)
             )
-            stream_url = info['url'] 
+            stream_url = info['url'] # type: ignore
 
-            base_source = discord.FFmpegPCMAudio(
-                stream_url,
-                **ffmpeg_options
-            )
-
+            base_source = discord.FFmpegPCMAudio(stream_url, **ffmpeg_options) # type: ignore
             source = discord.PCMVolumeTransformer(base_source, volume=0.1)
 
-            # --- INICIO DE LA SECCIÓN MODIFICADA ---
             embed = discord.Embed(
                 title="🎵 Reproduciendo ahora",
                 url=song['url'],
@@ -163,20 +193,16 @@ async def play_next(ctx):
                 color=discord.Color.green()
             )
             
-            # Añadir la miniatura (thumbnail) si existe
             if song.get('thumbnail'):
                 embed.set_thumbnail(url=song['thumbnail'])
             
-            # Añadir la duración
-            duration_str = song.get('duration') or 'Desconocida'
+            duration_str = song.get('duration', 'Desconocida')
             embed.add_field(name="Duración", value=duration_str, inline=True)
             
-            # Añadir quién la solicitó
             requester = song.get('requester', 'Desconocido')
             embed.add_field(name="Solicitado por", value=requester, inline=True)
             
             await ctx.send(embed=embed)
-            # --- FIN DE LA SECCIÓN MODIFICADA ---
 
             def after_playing(error):
                 if error:
@@ -195,7 +221,7 @@ async def play_next(ctx):
 
 async def preload_song(url):
     try:
-        with YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl: # type: ignore
             await asyncio.to_thread(ydl.extract_info, url, download=False)
     except Exception as e:
         print(f"Error en precarga: {e}")
@@ -263,16 +289,6 @@ def format_time(seconds):
     minutes, seconds = divmod(int(seconds), 60)
     return f"{minutes}:{seconds:02d}"
 
-def create_progress_bar(position, duration, length=15):
-    if duration <= 0:
-        return ""
-    
-    progress = min(position / duration, 1.0)
-    filled = int(progress * length)
-    bar = "▬" * filled + "🔘" + "▬" * (length - filled - 1)
-    return f"`[{bar}]`"
-
-# Comando para reproducir música
 @bot.command(name='play', aliases=command_aliases.get('play', []))
 async def play(ctx, *, query):
     if not ctx.author.voice:
@@ -333,7 +349,6 @@ async def play(ctx, *, query):
         print(f"Error en comando play: {e}")
         await ctx.send(f"❌ Error al buscar: {e}")
 
-# Comando para pausar
 @bot.command(name='pause', aliases=command_aliases.get('pause', []))
 async def pause(ctx):
     voice_client = ctx.voice_client
@@ -343,7 +358,6 @@ async def pause(ctx):
     else:
         await ctx.send("ℹ️ No hay música reproduciéndose actualmente.")
 
-# Comando para saltar (corregido)
 @bot.command(name='skip', aliases=['s'])
 async def skip(ctx):
     voice_client = ctx.voice_client
@@ -353,13 +367,11 @@ async def skip(ctx):
         return
 
     queue_is_empty = not (ctx.guild.id in queues and len(queues[ctx.guild.id]) > 0)
-
     voice_client.stop()
     
     if not queue_is_empty:
         await ctx.send("⏭️ Canción saltada.")
 
-# Comando para reanudar
 @bot.command(name='resume', aliases=command_aliases.get('resume', []))
 async def resume(ctx):
     voice_client = ctx.voice_client
@@ -369,7 +381,6 @@ async def resume(ctx):
     else:
         await ctx.send("ℹ️ La música no está pausada o no hay música en la cola.")
 
-# Comando para detener y limpiar la cola
 @bot.command(name='stopit', aliases=command_aliases.get('stopit', []))
 async def stop(ctx):
     voice_client = ctx.voice_client
@@ -380,54 +391,40 @@ async def stop(ctx):
             voice_client.stop()
         await ctx.send("⏹️ Música detenida y cola limpiada.")
 
-# Comando para desconectar
-# Comando para desconectar (CORREGIDO)
 @bot.command(name='disconnect', aliases=command_aliases.get('disconnect', []))
 async def disconnect(ctx):
     voice_client = ctx.voice_client
     
     if voice_client and voice_client.is_connected():
-        # Limpiar estado primero
         if ctx.guild.id in queues:
             queues[ctx.guild.id].clear()
         if voice_client.is_playing():
             voice_client.stop()
             
-        # Enviar el mensaje de despedida ANTES de la lógica de desconexión
         await ctx.send("👋 Desconectando del canal de voz...")
 
         if os.path.exists(config['leave_sound']):
-            # Función callback que se ejecuta DESPUÉS de que el sonido termine
             def after_playing(error):
                 if error:
                     print(f"Error en el sonido de salida: {error}")
-                
-                # Usar run_coroutine_threadsafe para llamar a la corutina 'safe_disconnect'
-                # ya que 'after' se ejecuta en un hilo diferente.
                 coro = safe_disconnect(ctx.guild)
                 fut = asyncio.run_coroutine_threadsafe(coro, bot.loop)
                 try:
-                    fut.result() # Esperar a que la desconexión termine
+                    fut.result()
                 except Exception as e:
-                    print(f"Error al ejecutar safe_disconnect desde after_playing: {e}")
+                    print(f"Error al ejecutar safe_disconnect: {e}")
 
             try:
-                # Intentar reproducir el sonido y pasarle la función 'after'
                 source = discord.FFmpegPCMAudio(config['leave_sound'])
                 voice_client.play(source, after=after_playing)
             except Exception as e:
-                print(f"Error al reproducir sonido de salida, desconectando igualmente: {e}")
-                # Si falla la reproducción del sonido, desconectar de todas formas
+                print(f"Error al reproducir sonido de salida: {e}")
                 await safe_disconnect(ctx.guild)
-        
         else:
-            # Si no hay sonido de salida, desconectar directamente
             await safe_disconnect(ctx.guild) 
-    
     else:
         await ctx.send("ℹ️ El bot no está conectado a un canal de voz.")
 
-# Comando para mostrar la canción actual
 @bot.command(name='nowplaying', aliases=command_aliases.get('nowplaying', []))
 async def nowplaying(ctx):
     voice_client = ctx.voice_client
@@ -453,11 +450,7 @@ async def nowplaying(ctx):
         embed.add_field(name="Canción", value=f"[{song['title']}]({song['url']})", inline=False)
         
         if duration > 0:
-            embed.add_field(
-                name="Duración",
-                value=f"{format_time(duration)}",
-                inline=False
-            )
+            embed.add_field(name="Duración", value=f"{format_time(duration)}", inline=False)
         
         embed.set_footer(text=f"Solicitado por: {song.get('requester', 'Desconocido')}")
         await ctx.send(embed=embed)
@@ -466,7 +459,6 @@ async def nowplaying(ctx):
         print(f"Error en nowplaying: {e}")
         await ctx.send("ℹ️ Reproduciendo: **" + song['title'] + "**")
 
-# Comando para mostrar la cola
 @bot.command(name='queue', aliases=['q'])
 async def queue(ctx):
     if ctx.guild.id in queues and len(queues[ctx.guild.id]) > 0:
@@ -486,7 +478,6 @@ async def queue(ctx):
     else:
         await ctx.send("ℹ️ La cola está vacía.")
 
-# Comando para mezclar la cola
 @bot.command(name='shuffle', aliases=command_aliases.get('shuffle', []))
 async def shuffle(ctx):
     if ctx.guild.id in queues and len(queues[ctx.guild.id]) > 0:
@@ -495,7 +486,6 @@ async def shuffle(ctx):
     else:
         await ctx.send("ℹ️ No hay suficientes canciones en la cola para mezclar.")
 
-# Comando para eliminar una canción de la cola
 @bot.command(name='remove', aliases=command_aliases.get('remove', []))
 async def remove(ctx, index: int):
     if ctx.guild.id in queues and 0 < index <= len(queues[ctx.guild.id]):
@@ -504,64 +494,32 @@ async def remove(ctx, index: int):
     else:
         await ctx.send("ℹ️ Índice inválido o cola vacía.")
 
-# Comando para ayuda
 @bot.command(name='helpme', aliases=command_aliases.get('helpme', []))
 async def help_command(ctx):
     embed1 = discord.Embed(
         title="🎵 Ayuda del Bot de Música",
-        description="Lista de comandos disponibles (también puedes usar los alias):",
+        description="Lista de comandos disponibles:",
         color=discord.Color.red()
     )
     
     commands_info = {
-        '**play [query/url/playlist_url]**': "Reproduce una canción, playlist o añádela a la cola",
-        '**pause**': "Pausa la música actual",
-        '**resume**': "Reanuda la música pausada",
+        '**play [query/url/playlist]**': "Reproduce o añade a la cola",
+        '**pause**': "Pausa la música",
+        '**resume**': "Reanuda la música",
         '**stopit**': "Detiene la música y limpia la cola",
-        '**disconnect**': "Desconecta el bot del canal de voz",
-        '**nowplaying**': "Muestra la canción que se está reproduciendo",
-        '**queue**': "Muestra la cola de reproducción actual",
-        '**shuffle**': "Mezcla aleatoriamente la cola de reproducción",
-        '**remove [número]**': "Elimina una canción de la cola por su número",
-        '**helpme**': "Muestra este mensaje de ayuda"
+        '**disconnect**': "Desconecta el bot",
+        '**nowplaying**': "Muestra la canción actual",
+        '**queue**': "Muestra la cola",
+        '**shuffle**': "Mezcla la cola",
+        '**remove [número]**': "Elimina una canción",
+        '**helpme**': "Muestra este mensaje"
     }
     
     for cmd, desc in commands_info.items():
         embed1.add_field(name=f"-{cmd}", value=desc, inline=True)
     
-    embed1.set_footer(text="También puedes usar alias para estos comandos.")
     await ctx.send(embed=embed1)
 
-    embed2 = discord.Embed(
-        title="🎵 Ayuda del Bot de Música",
-        description="Lista de comandos disponibles (también puedes usar los alias):",
-        color=discord.Color.red()
-    )
-    
-    alias_info = {
-        '**PLAY**': 'p - reproducir',
-        '**PAUSE**': 'ps - pausa',
-        '**RESUME**': 'r - continuar - reanudar - unpause',
-        '**STOPIT**': 'stp - parar - terminar - stop',
-        '**DISCONNECT**': 'dc - desconectar - leave - salir',
-        '**NOWPLAYING**': 'np - current - actual',
-        '**QUEUE**': 'q - lista - cola',
-        '**SHUFFLE**': 'rnd - random - mezclar',
-        '**REMOVE**': 'rm - eliminar - delete - quitar',
-        '**HELPME**': 'hm - ayuda - comandos'
-    }
-    
-    for cmd, alias in alias_info.items():
-        embed2.add_field(
-            name=cmd,
-            value=alias,
-            inline=True
-        )
-    
-    embed2.set_footer(text="También puedes usar alias para estos comandos.")
-    await ctx.send(embed2)
-
-# Comando para añadir alias
 @bot.command(name='addalias')
 @commands.has_permissions(administrator=True)
 async def add_alias(ctx, command: str, alias: str):
@@ -570,13 +528,12 @@ async def add_alias(ctx, command: str, alias: str):
             command_aliases[command.lower()].append(alias.lower())
             config['aliases'] = command_aliases
             save_config(config)
-            await ctx.send(f"✅ Alias '{alias}' añadido para el comando '{command}'.")
+            await ctx.send(f"✅ Alias '{alias}' añadido.")
         else:
-            await ctx.send("ℹ️ Este alias ya existe para este comando.")
+            await ctx.send("ℹ️ Este alias ya existe.")
     else:
         await ctx.send("❌ Comando no válido.")
 
-# Tarea para revisar si el canal de voz está vacío
 @tasks.loop(seconds=5)
 async def voice_check_task():
     for guild in bot.guilds:
@@ -586,101 +543,73 @@ async def voice_check_task():
             print(f"Error en voice_check_task para {guild.name}: {e}")
             voice_timeout.pop(guild.id, None)
 
-# --- INICIO DE NUEVA FUNCIONALIDAD: Auto-Update Task ---
 @tasks.loop(hours=1)
 async def update_check_task():
     print("[Auto-Update] Ejecutando revisión de actualizaciones...")
 
-    # 1. Comprobar si el bot está activo en algún canal de voz
     is_active = False
     for guild in bot.guilds:
-        if guild.voice_client and guild.voice_client.is_connected():
+        if guild.voice_client and guild.voice_client.is_connected(): # type: ignore
             is_active = True
             break
     
     if is_active:
-        print("[Auto-Update] El bot está activo en un canal de voz. Omitiendo revisión.")
         return
 
-    # 2. Si está inactivo, buscar actualizaciones (en un hilo)
-    print("[Auto-Update] El bot está inactivo. Buscando actualizaciones de paquetes...")
     try:
-        # sys.executable es la ruta al python.exe actual
         cmd = [sys.executable, '-m', 'pip', 'list', '--outdated']
-        
-        # Usamos asyncio.to_thread para ejecutar el comando síncrono
         process = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, check=True)
         output = process.stdout
         
         needs_update = False
         for lib in LIBS_TO_UPDATE:
             if lib in output:
-                print(f"[Auto-Update] Actualización encontrada para: {lib}")
                 needs_update = True
                 break
 
         if not needs_update:
-            print("[Auto-Update] Todas las bibliotecas están al día.")
             return
 
-        # 3. Instalar actualizaciones (en un hilo)
-        print("[Auto-Update] Instalando actualizaciones...")
         install_cmd = [sys.executable, '-m', 'pip', 'install', '--upgrade'] + LIBS_TO_UPDATE
-        
         await asyncio.to_thread(subprocess.run, install_cmd, capture_output=True, text=True, check=True)
         
-        print("[Auto-Update] Actualizaciones instaladas. Reiniciando el bot...")
-
-        # 4. Reiniciar el bot
-        await bot.close()  # Cerrar la conexión de Discord limpiamente
+        await bot.close()
         bot.run(TOKEN)
         
-
-    except subprocess.CalledProcessError as e:
-        print(f"[Auto-Update] Error: Fallo al revisar/instalar actualizaciones. Error: {e.stderr}")
     except Exception as e:
-        print(f"[Auto-Update] Error: Ocurrió un error inesperado: {e}")
+        print(f"[Auto-Update] Error: {e}")
 
 @update_check_task.before_loop
 async def before_update_check():
-    await bot.wait_until_ready() # Esperar a que el bot esté listo
-# --- FIN DE NUEVA FUNCIONALIDAD ---
+    await bot.wait_until_ready()
 
 # --- CONFIGURACIÓN DE MONITOR DE ESTADO (UPTIME KUMA) ---
-UPTIME_KUMA_URL = "http://192.168.1.89:3001/api/push/vKnIkrymMwYfY8W1Gkl5ZoveUKyVFaVW?status=up&msg=OK&ping="
+UPTIME_KUMA_URL = os.getenv("UPTIME_KUMA_URL", "")
 
 @tasks.loop(seconds=20)
 async def uptime_heartbeat():
-    """Envía una señal a Uptime Kuma cada 60 segundos para indicar que el bot está vivo."""
     if not UPTIME_KUMA_URL or "PEGA_AQUI" in UPTIME_KUMA_URL:
-        print("[Monitor] URL de Uptime Kuma no configurada.")
         return
-
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(UPTIME_KUMA_URL) as response:
-                if response.status == 200:
-                    # Si quieres menos spam en la consola, comenta la siguiente línea
-                    # print(f"[Monitor] Latido enviado correctamente (Status: {response.status})")
-                    pass
-                else:
-                    print(f"[Monitor] Error al enviar latido: Status {response.status}")
+                pass
     except Exception as e:
-        print(f"[Monitor] Fallo de conexión con Uptime Kuma: {e}")
+        print(f"[Monitor] Fallo de conexión: {e}")
 
 @uptime_heartbeat.before_loop
 async def before_heartbeat():
     await bot.wait_until_ready()
-# --------------------------------------------------------
 
 # Evento cuando el bot está listo
 @bot.event
 async def on_ready():
-    print(f'Bot conectado como {bot.user.name}')
+    print(f'Bot conectado como {bot.user.name}') # type: ignore
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="-helpme"))
     voice_check_task.start()
-    update_check_task.start() # <-- Iniciar la nueva tarea
+    update_check_task.start()
     uptime_heartbeat.start()
+    cookie_refresh_task.start() # <-- Iniciamos la tarea de Playwright
 
 # Manejo de errores
 @bot.event
@@ -699,7 +628,6 @@ async def on_voice_state_update(member, before, after):
         return
     
     guild = member.guild
-    
     if guild.voice_client:
         await check_empty_voice(guild)
 
