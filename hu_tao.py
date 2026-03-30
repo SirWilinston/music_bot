@@ -56,7 +56,7 @@ ydl_opts = {
 
 # Opciones de FFmpeg (Sin cambios)
 ffmpeg_options = {
-    'options': '-vn -filter:a "volume=0.1" -b:a 128k -threads 4 -loglevel error',
+    'options': '-vn -filter:a "volume=0.2" -b:a 128k -threads 4 -loglevel error',
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -analyzeduration 0 -probesize 32k -fflags +nobuffer+fastseek+discardcorrupt'
 }
 
