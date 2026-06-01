@@ -300,7 +300,15 @@ async def play(ctx, *, query):
                 continue
 
             webpage_url = song_info.get('webpage_url', song_info.get('url'))
-            duration_sec = song_info.get('duration', 0)
+            
+            # --- FIX DEFINITIVO PARA PLAYLISTS ---
+            raw_duration = song_info.get('duration')
+            # Forzamos la conversión a entero. Si es None (por ser playlist plana), será 0.
+            try:
+                duration_sec = int(raw_duration) if raw_duration is not None else 0
+            except (ValueError, TypeError):
+                duration_sec = 0
+            # -------------------------------------
             
             song_data = {
                 'title': song_info.get('title', 'Título desconocido'),
@@ -324,10 +332,11 @@ async def play(ctx, *, query):
         
         if not ctx.voice_client.is_playing():
             await play_next(ctx)
+            
     except Exception as e:
         print(f"Error en comando play: {e}")
-        await ctx.send(f"❌ Error al buscar: {e}")
-
+        await ctx.send(f"❌ Error al procesar tu solicitud. Intenta de nuevo.")
+        
 # Comando para pausar
 @bot.command(name='pause', aliases=command_aliases.get('pause', []))
 async def pause(ctx):
