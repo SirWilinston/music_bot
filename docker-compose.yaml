@@ -1,10 +1,9 @@
 services:
-  hutao-bot:
+  music-bot:
     build: .
-    container_name: hutao_bot
+    container_name: music-bot
     restart: unless-stopped
     env_file:
       - .env
     volumes:
-      - ./config.json:/app/config.json
       - ./sounds:/app/sounds
