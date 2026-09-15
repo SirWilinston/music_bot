@@ -1,8 +1,8 @@
-import os
 import sys
 import subprocess
 import asyncio
 import aiohttp
+import os
 from discord.ext import commands, tasks
 from config import LIBS_TO_UPDATE, UPTIME_KUMA_URL
 
@@ -20,16 +20,14 @@ class Tasks(commands.Cog):
     async def update_check_task(self):
         print("[Auto-Update] Ejecutando revisión de actualizaciones...")
         
-        # Comprobar si el bot está activo en algún canal de voz
         is_active = any(guild.voice_client and guild.voice_client.is_connected() for guild in self.bot.guilds)
         
         if is_active:
-            print("[Auto-Update] El bot está activo reproduciendo música. Omitiendo revisión para no interrumpir.")
+            print("[Auto-Update] El bot está activo reproduciendo música. Omitiendo revisión.")
             return
 
-        print("[Auto-Update] El bot está inactivo. Buscando actualizaciones de paquetes...")
+        print("[Auto-Update] Buscando actualizaciones de paquetes...")
         try:
-            # sys.executable es la ruta al python actual (incluyendo el venv si está activado)
             cmd = [sys.executable, '-m', 'pip', 'list', '--outdated']
             process = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, check=True)
             
@@ -65,7 +63,7 @@ class Tasks(commands.Cog):
             async with aiohttp.ClientSession() as session:
                 async with session.get(UPTIME_KUMA_URL) as response:
                     if response.status == 200:
-                        pass # Ping exitoso silencioso
+                        pass # Ping exitoso silencioso (puedes poner un print aquí si quieres verlo en consola)
         except Exception as e:
             print(f"[Monitor] Fallo al avisar a Uptime Kuma: {e}")
 
